@@ -32,9 +32,9 @@ class TextParser:
                 if '@' in words:
                     continue
                 if '\\' in words:
-                    words = '\n' + words.replace('\\', '\n')
+                    words = '<br>' + words.replace('\\', '<br>')
                 if '/' in words:
-                    words = '\n' + words.replace('/', '')
+                    words = '<br>' + words.replace('/', '')
                 time += message.time
                 time_in_seconds = mido.tick2second(time,
                                                    self.file.ticks_per_beat,
@@ -44,8 +44,6 @@ class TextParser:
         return text_music_by_time
 
     def change_tempo(self, filename, tempo):
-        if os.path.isfile(filename):
-            return
         new_mid = mido.MidiFile()
         new_mid.ticks_per_beat = self.file.ticks_per_beat
         for track in self.file.tracks:
@@ -56,7 +54,10 @@ class TextParser:
                     if msg.tempo // tempo > 16777215:
                         msg.tempo = 16777215
                     else:
-                        msg.tempo = msg.tempo // tempo #меньше - быстрее
+                        if tempo > 0:
+                            msg.tempo = int(msg.tempo / tempo)
+                        else:
+                            msg.tempo = int(msg.tempo * tempo)
                 new_track.append(msg)
         self.file = new_mid
         new_mid.save('{}'.format(filename))
@@ -67,8 +68,8 @@ class TextParser:
             words += word[0]
         return words
 
-    def get_full_time(self):
-        minutes, seconds = divmod(self.file.length, 60)
+    def get_full_time(self, tempo):
+        minutes, seconds = divmod(self.file.length*tempo, 60)
         minutes = round(minutes)
         seconds = round(seconds)
         time_format_all = '{:02d}:{:02d}'.format(minutes, seconds)
