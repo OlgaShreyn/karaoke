@@ -1,9 +1,6 @@
 from pygame import mixer
 import sys
 import os
-import time
-import threading
-import subprocess
 from PyQt5 import QtWidgets, QtCore, QtGui
 import pars
 import argparse
@@ -12,53 +9,35 @@ import random
 
 class ScrollLabel(QtWidgets.QScrollArea):
 
-    # contructor
     def __init__(self, *args, **kwargs):
         QtWidgets.QScrollArea.__init__(self, *args, **kwargs)
 
-        # making widget resizable
         self.setWidgetResizable(True)
-        #desktop_geom = QCoreApplication.instance().desktop().availableGeometry()
-        #if desktop_geom.height() < 800:
-         #   self.setBaseSize(qsa.size().width(), desktop_geom.height() - 100)
-
-
-        # making qwidget object
         content = QtWidgets.QWidget(self)
         self.setWidget(content)
 
-        # vertical box layout
-        lay = QtWidgets.QVBoxLayout(content)
-
-        # creating label
         self.label = QtWidgets.QLabel(content)
-
-        # setting alignment to the text
         self.label.setAlignment(QtCore.Qt.AlignCenter | QtCore.Qt.AlignTop)
-
-        # making label multi-line
         self.label.setWordWrap(True)
+        self.label.setFont(QtGui.QFont("Times", 14, QtGui.QFont.Bold))
 
-        # adding label to the layout
+        lay = QtWidgets.QVBoxLayout(content)
         lay.addWidget(self.label)
 
-        self.label.setFont(QtGui.QFont("Times", 10, QtGui.QFont.Bold))
+    def change_pos(self, n):
+        self.verticalScrollBar().setSliderPosition(n)
 
     def setText(self, text1, text2):
         text = '''<font color="red">{text1}</font>
 <font color="black">{text2}</font>'''.format(text1=text1, text2=text2)
         self.label.setText(text)
-        
+
     def setPixmap(self, image):
         oImage = QtGui.QImage(image)
         sImage = oImage.scaled(QtCore.QSize(self.width(), self.height()))
         palette = QtGui.QPalette()
         palette.setBrush(10, QtGui.QBrush(sImage))
         self.setPalette(palette)
-        #self.label.setPixmap(QtGui.QPixmap(image))
-        #self.label.setScaledContents(True)
-        #self.label.setTextInteractionFlags(QtCore.Qt.NoTextInteraction)
-        #self.label.setStyleSheet("background-image: {image}".format(image=image))
 
 
 class GUI(QtWidgets.QWidget):
@@ -77,6 +56,7 @@ class GUI(QtWidgets.QWidget):
         self.all_text = ''
         self.text_write = ''
         self.rev_text = ''
+        self.queue_songs = []
         self.label = ScrollLabel(self)
         self.change_backgrounds()
 
@@ -161,6 +141,9 @@ class GUI(QtWidgets.QWidget):
             self.list_songs.addItem(os.path.split(music)[1])
             self.list_songs.hide()
             self.loader(music)
+        else:
+            self.music_file = None
+        self.prev_song = None
         self.show()
 
     def change_backgrounds(self):
@@ -169,44 +152,32 @@ class GUI(QtWidgets.QWidget):
         elif os.path.isdir(directory_image):
             self.image = os.path.join(directory_image, self.take_picture())
         self.label.setPixmap(self.image)
-        #self.update()
 
     def closeEvent(self, e):
         mixer.music.stop()
+        if self.music_file is not None and tempo != 1:
+            p = self.music_file.split('.')
+            prev_file_name = p[0] + 'tempo{}.'.format(tempo) + p[1]
+            os.remove(prev_file_name)
         e.accept()
 
-    #def paintEvent(self, e):
-        #qp = QtGui.QPainter()
-        #qp.begin(self)
-        #painter = QtGui.QPainter(self)
-        #picture = QtGui.QPixmap(self.image)
-        #width = self.list_songs.pos().x()
-        #painter.drawPixmap(QtCore.QRect(0, 0, width, 3*self.size().height()/4), picture)
-        #self.draw_text(e, qp)
-        #self.draw_text_colored(e, qp)
-        #qp.end()
-
-    #def draw_text_colored(self, event, qp):
-     #   qp.setPen(QtGui.QColor(250, 40, 5))
-      #  qp.drawText(QtCore.QRect(self.size().width()/12,
-       #                          0, 300, 3*self.size().height()/4),
-        #            QtCore.Qt.AlignLeft, self.text_write)
-
-    #def draw_text(self, event, qp):
-     #   qp.setPen(QtGui.QColor(0, 0, 0))
-      #  qp.drawText(QtCore.QRect(self.size().width()/12,
-       #                          0, 300, 3*self.size().height()/4),
-        #            QtCore.Qt.AlignLeft, self.all_text)
-
     def loader(self, text):
+        self.queue_songs.append(self.list_songs.currentRow())
         self.flag_load = True
         self.flag_pause = False
         self.btn_pause.setText('Пауза')
         self.cur_time = 0
+        if self.music_file is not None:
+            self.prev_song = os.path.split(self.music_file)[-1]
         self.music_file = os.path.join(directory, text)
         self.text_song = pars.TextParser(self.music_file)
         if tempo != 1:
-            filename = self.music_file.split('.')[0] + 'tempo{}.'.format(tempo) + self.music_file.split('.')[1]
+            if self.prev_song is not None:
+                p = self.prev_song.split('.')
+                prev_file_name = p[0] + 'tempo{}.'.format(tempo) + p[1]
+                os.remove(os.path.join(directory, prev_file_name))
+            p = self.music_file.split('.')
+            filename = p[0] + 'tempo{}.'.format(tempo) + p[1]
             self.text_song.change_tempo(filename, tempo)
         else:
             filename = self.music_file
@@ -216,17 +187,19 @@ class GUI(QtWidgets.QWidget):
     def get_time_and_text(self):
         if self.flag_load:
             self.color()
-            self.cur_time = mixer.music.get_pos() / 1000 * tempo
+            self.cur_time = mixer.music.get_pos() / 1000
             if self.cur_time < 0:
                 self.text_time_c.setText('00:00')
             else:
-                minutes, seconds = divmod(self.cur_time, 60)
+                minutes, seconds = divmod(self.cur_time*tempo, 60)
                 minutes = round(minutes)
                 seconds = round(seconds)
                 self.text_time_c.setText(
                     '{:02d}:{:02d}'.format(minutes, seconds))
-            self.slider.setValue(self.cur_time)
+            self.slider.setValue(self.cur_time*2)
             self.label.setText(self.text_write, self.rev_text)
+
+            self.label.change_pos(self.text_write.count('<br>')*22)
 
     def color(self):
         self.text_write = ''
@@ -245,6 +218,8 @@ class GUI(QtWidgets.QWidget):
     def play(self):
         if self.flag_load:
             self.text_write = ''
+            self.all_text = ''
+            self.label.setText('', '')
             self.update_current_music()
             if mixer.music.get_busy:
                 self.btn_play.setText('Начать заново')
@@ -253,15 +228,13 @@ class GUI(QtWidgets.QWidget):
             mixer.music.play()
 
     def update_current_music(self):
-        self.text_song = pars.TextParser(self.music_file)
         self.text = self.text_song.parse()
-        self.time = self.text_song.get_full_time()
+        self.time = self.text_song.get_full_time(tempo)
         self.text_time.setText(self.time)
         self.current_file.setText(os.path.split(str(self.music_file))[1])
         self.text_time_c.setText('00:00')
-        self.all_text = self.text_song.parse_only_text(self.text).replace('\n', '<br>')
-        self.slider.setRange(0, self.text_song.file.length)
-
+        self.all_text = self.text_song.parse_only_text(self.text)
+        self.slider.setRange(0, self.text_song.file.length*2)
 
     def play_next(self):
         if self.list_songs.currentRow() >= 0:
@@ -270,7 +243,9 @@ class GUI(QtWidgets.QWidget):
                 self.list_songs.setCurrentRow(new_index)
 
     def play_previous(self):
-        if self.list_songs.currentRow() > 0:
+        if self.prev_song is not None:
+            self.list_songs.setCurrentRow(self.queue_songs[-2])
+        elif self.list_songs.currentRow() > 0:
             new_index = self.list_songs.currentRow() - 1
             self.list_songs.setCurrentRow(new_index)
 
@@ -296,13 +271,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description='karaoke player')
     parser.add_argument('--path', dest="directory", default=os.getcwd(),
                         help='path to directory with files')
-    parser.add_argument('--path_back', dest="directory_image", default=os.path.join(os.getcwd(), 'backgrounds'),
+    parser.add_argument('--path_back', dest="directory_image",
+                        default=os.path.join(os.getcwd(), 'backgrounds'),
                         help='path to background directory')
     parser.add_argument('-c', dest="is_background_const", action="store_true",
                         help='if background is changing')
     parser.add_argument('--file', dest="music", help='file to open')
-    parser.add_argument('--tempo', type=int, dest="tempo", default=1,
-                        help='speed')
+    parser.add_argument('--tempo', type=float, dest="tempo", default=1,
+                        help='playback speed')
     return parser.parse_args()
 
 
